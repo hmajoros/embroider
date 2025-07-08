@@ -42,11 +42,16 @@ export interface ExternalNameHint {
 
 export type ExternalResolver = (module: string) => string;
 
+export interface ExternalImportNameResolver {
+  (module: string): { specifier: string; importedName: string } | string;
+}
+
 export interface Options {
   appRoot: string;
   emberVersion: string;
   externalNameHint?: ExternalNameHint;
   externalResolve?: (module: string) => string;
+  externalImportNameResolve?: ExternalImportNameResolver;
 }
 
 type BuiltIn = {
@@ -189,7 +194,8 @@ class TemplateResolver implements ASTPlugin {
     private builtInsForEmberVersion: ReturnType<typeof builtInKeywords>,
     private supportsThisFallback: boolean,
     private externalNameHint?: ExternalNameHint,
-    private externalResolve?: ExternalResolver
+    private externalResolve?: ExternalResolver,
+    private externalImportNameResolve?: ExternalImportNameResolver
   ) {
     this.moduleResolver = new Resolver(config);
     if ((globalThis as any).embroider_audit) {
@@ -210,10 +216,22 @@ class TemplateResolver implements ASTPlugin {
       case 'modifier':
       case 'helper': {
         let specifier = resolution.specifier;
-        if (this.externalResolve) {
+        let importedName = resolution.importedName;
+
+        // Use the new externalImportNameResolve if available, otherwise fall back to the old externalResolve
+        if (this.externalImportNameResolve) {
+          let resolveResult = this.externalImportNameResolve(specifier);
+          if (typeof resolveResult === 'string') {
+            specifier = resolveResult;
+          } else {
+            specifier = resolveResult.specifier;
+            importedName = resolveResult.importedName;
+          }
+        } else if (this.externalResolve) {
           specifier = this.externalResolve(specifier);
         }
-        let name = this.env.meta.jsutils.bindImport(specifier, resolution.importedName, parentPath, {
+
+        let name = this.env.meta.jsutils.bindImport(specifier, importedName, parentPath, {
           nameHint: resolution.nameHint,
         });
         setter(parentPath.node, this.env.syntax.builders.path(name));
@@ -1026,7 +1044,7 @@ class TemplateResolver implements ASTPlugin {
 }
 
 // This is the AST transform that resolves components, helpers and modifiers at build time
-export default function makeResolverTransform({ appRoot, emberVersion, externalNameHint, externalResolve }: Options) {
+export default function makeResolverTransform({ appRoot, emberVersion, externalNameHint, externalResolve, externalImportNameResolve }: Options) {
   let loader = new ResolverLoader(appRoot);
   let config = loader.resolver.options as CompatResolverOptions;
   const resolverTransform: ASTPluginBuilder<Env> = env => {
@@ -1042,7 +1060,8 @@ export default function makeResolverTransform({ appRoot, emberVersion, externalN
       builtInKeywords(emberVersion),
       supportsThisFallback(emberVersion),
       externalNameHint,
-      externalResolve
+      externalResolve,
+      externalImportNameResolve
     );
   };
   (resolverTransform as any).parallelBabel = {

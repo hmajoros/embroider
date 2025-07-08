@@ -85,7 +85,7 @@ program
   )
   .option(
     '--customResolver <value>',
-    `The name of a module that will provide a way to supply custom resolving rules`,
+    `The name of a module that will provide a way to supply custom resolving rules. Can return a string for the import path or an object with 'specifier' and optional 'importedName' properties to control whether imports are default or named.`,
     defaults.customResolver
   )
   .option(

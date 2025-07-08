@@ -16,7 +16,7 @@ export default function defaultRenaming(
     name = parts[parts.length - 1];
   }
 
-  if (htmlTagNames.includes(name)) {
+  if (htmlTagNames.includes(name) && kind === 'component') {
     name = name + '_';
   }
 

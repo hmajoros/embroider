@@ -8,7 +8,7 @@ import { createRequire } from 'module';
 import { extractTemplates, locateTemplates } from './extract-meta.js';
 import reverseExports from '@embroider/reverse-exports';
 import { basename, dirname, relative, resolve } from 'path';
-import type { ResolverTransformOptions } from '@embroider/compat';
+import type { ResolverTransformOptions } from 'hmajoros-compat';
 import { identifyRenderTests } from './identify-render-tests.js';
 import { ImportUtil } from 'babel-import-util';
 import { replaceThisTransform } from './replace-this-transform.js';
@@ -21,6 +21,11 @@ const { explicitRelative, hbsToJS, ResolverLoader } = core;
 const { externalName } = reverseExports;
 const require = createRequire(import.meta.url);
 const { default: generate } = require('@babel/generator');
+
+export interface CustomResolverResult {
+  specifier: string;
+  importedName?: string;
+}
 
 export interface Options {
   // when true, imports for other files in the same project will use relative
@@ -83,11 +88,11 @@ export interface Options {
   /**
    * Path to an ES module whose default export implements a function like
    *
-   *    (path: string, filename: string, resolve: (path: string, filename: string) => string) => string;
+   *    (path: string, filename: string, resolve: (path: string, filename: string) => string) => string | { specifier: string; importedName?: string };
    *
-   * Return a string to provide a resolvable import path, based on the original import `path` and optionally
-   * the `filename` where the import appears. Return `undefined` to fall back to the default behavior or call
-   * `resolve` to use that default implementation.
+   * Return a string to provide a resolvable import path, or an object with `specifier` and optional `importedName`
+   * to control the import type. The `importedName` can be 'default' (default) or the name of a named export.
+   * Return `undefined` to fall back to the default behavior or call `resolve` to use that default implementation.
    */
   customResolver?: string;
 
@@ -121,7 +126,7 @@ export function optionsWithDefaults(options?: Options): OptionsWithDefaults {
       routeTemplateSignature: `{ Args: { model: unknown, controller: unknown } }`,
       templateOnlyComponentSignature: `{ Args: {} }`,
       templateInsertion: 'beginning',
-      renamingRules: '@embroider/template-tag-codemod/default-renaming',
+      renamingRules: '@hmajoros/template-tag-codemod/default-renaming',
       reusePrebuild: false,
       addNameToTemplateOnly: false,
     },
@@ -213,7 +218,7 @@ async function locateInvokables(
   filename: string,
   ast: types.File,
   opts: OptionsWithDefaults
-): Promise<Map<string, string>> {
+): Promise<Map<string, { specifier: string; importedName: string }>> {
   let resolverOutput = await transformFromAstAsync(ast, undefined, {
     ast: true,
     code: false,
@@ -227,7 +232,7 @@ async function locateInvokables(
           enableLegacyModules: allLegacyModules(),
           transforms: [
             [
-              require.resolve('@embroider/compat/src/resolver-transform'),
+              require.resolve('hmajoros-compat/src/resolver-transform'),
               {
                 appRoot: process.cwd(),
                 emberVersion: resolverLoader.resolver.options.emberVersion,
@@ -258,13 +263,18 @@ async function locateInvokables(
   return resolutions;
 }
 
-async function resolveVirtualImport(filename: string, request: string, opts: OptionsWithDefaults): Promise<string> {
+async function resolveVirtualImport(
+  filename: string,
+  request: string,
+  opts: OptionsWithDefaults
+): Promise<{ specifier: string; importedName: string }> {
   let resolve = async (path: string, filename: string) => {
     let resolution = await resolverLoader.resolver.nodeResolve(path, filename, {
       extensions: opts.extensions,
     });
     if (resolution.type !== 'not_found') {
-      return await chooseImport(filename, resolution, path, 'default', opts);
+      let specifier = await chooseImport(filename, resolution, path, 'default', opts);
+      return { specifier, importedName: 'default' };
     }
   };
 
@@ -273,7 +283,15 @@ async function resolveVirtualImport(filename: string, request: string, opts: Opt
     let customResult = await customResolver(request, filename, resolve);
 
     if (customResult) {
-      return customResult;
+      // Handle both string and object return types
+      if (typeof customResult === 'string') {
+        return { specifier: customResult, importedName: 'default' };
+      } else {
+        return {
+          specifier: customResult.specifier,
+          importedName: customResult.importedName || 'default',
+        };
+      }
     }
   }
 
@@ -832,7 +850,7 @@ const loadRenamingRules = (() => {
 async function runResolverTransform(
   parsed: types.File,
   filename: string,
-  invokables: Map<string, string>,
+  invokables: Map<string, { specifier: string; importedName: string }>,
   replaceThisWith: string | undefined,
   opts: OptionsWithDefaults
 ): Promise<types.File> {
@@ -851,12 +869,18 @@ async function runResolverTransform(
           enableLegacyModules: allLegacyModules(),
           transforms: [
             [
-              require.resolve('@embroider/compat/src/resolver-transform'),
+              require.resolve('hmajoros-compat/src/resolver-transform'),
               {
                 appRoot: process.cwd(),
                 emberVersion: resolverLoader.resolver.options.emberVersion,
                 externalNameHint,
-                externalResolve: module => invokables.get(module) ?? module,
+                externalImportNameResolve: module => {
+                  let resolution = invokables.get(module);
+                  if (resolution) {
+                    return resolution;
+                  }
+                  return module;
+                },
               } satisfies ResolverTransformOptions,
             ],
             ...(replaceThisWith ? [replaceThisTransform(replaceThisWith)] : []),
@@ -945,7 +969,7 @@ function indent(s: string): string {
 export async function run(partialOpts: Options) {
   let opts = optionsWithDefaults(partialOpts);
   let results: Result[] = [];
-  await ensureAppSetup();
+  // await ensureAppSetup();
   await ensurePrebuild(opts);
   results = results.concat(await processRouteTemplates(opts));
   results = results.concat(await processComponents(opts));

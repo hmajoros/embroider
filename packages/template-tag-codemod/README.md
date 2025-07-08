@@ -98,6 +98,63 @@ In these cases, the codemod's output is controlled by `--defaultFormat`.
 
 Pass `--defaultFormat gts` instead if you prefer to produce typescript. Also see the interactive docs for `--routeTemplateSignature` and `--templateOnlyComponentSignature` if you want to customize the default type signatures emitted by the codemod. 
 
+### --customResolver
+
+The `--customResolver` option allows you to provide a custom module that resolves virtual component paths to actual import paths. This is useful when you have components that are not directly resolvable through the standard Ember resolution.
+
+The custom resolver module should export a default function with the following signature:
+
+```js
+// customResolver.js
+module.exports = async function customResolver(path, filename, resolve) {
+  // Return a string for the import path (uses default import)
+  if (path.startsWith('@embroider/virtual/components/pluma-')) {
+    return '@customerio/pluma-components/ember';
+  }
+
+  // Return an object to control import type
+  if (path.startsWith('@embroider/virtual/components/shared-')) {
+    return {
+      specifier: '@shared/components',
+      importedName: 'SharedComponent' // Named import
+    };
+  }
+
+  // Return undefined to fall back to default behavior
+  return undefined;
+};
+```
+
+**Return Types:**
+- `string`: Uses the string as the import path with a default import
+- `{ specifier: string, importedName?: string }`: 
+  - `specifier`: The import path
+  - `importedName`: The name to import (defaults to 'default' if not specified)
+- `undefined`: Falls back to default resolution
+
+**Example Usage:**
+
+```js
+// Before: import PlumaImage from '@customerio/pluma-components/ember';
+// After:  import { PlumaImage } from '@customerio/pluma-components/ember';
+
+module.exports = async function customResolver(path, filename, resolve) {
+  if (path.startsWith('@embroider/virtual/components/pluma-')) {
+    return {
+      specifier: '@customerio/pluma-components/ember',
+      importedName: 'PlumaImage' // This creates a named import
+    };
+  }
+  
+  return undefined;
+};
+```
+
+Then run the codemod with:
+```sh
+npx @embroider/template-tag-codemod --customResolver ./customResolver.js
+```
+
 ## Prerequisites
 
 1. Your build must support Template Tag. 

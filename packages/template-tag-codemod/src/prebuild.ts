@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const EmberApp = require('ember-cli/lib/broccoli/ember-app.js');
 const Project = require('ember-cli/lib/models/project.js');
 const CLI = require('ember-cli/lib/cli/cli.js');
-const Compat = require('@embroider/compat');
+const Compat = require('hmajoros-compat');
 
 export async function prebuild() {
   const root = process.cwd();
@@ -30,7 +30,8 @@ export async function prebuild() {
   });
 
   let project = new Project(root, pkg, ui, cli);
-  let app = new EmberApp({ project });
+  let app = new EmberApp({ project, storeConfigInMeta: true });
+  app.options.storeConfigInMeta = true;
   let builder = new broccoli.Builder(Compat.prebuild(app));
 
   await builder.build();
