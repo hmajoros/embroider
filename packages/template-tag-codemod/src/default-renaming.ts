@@ -10,10 +10,17 @@ export default function defaultRenaming(
     name = capitalize(parts[parts.length - 1]);
   }
 
-  // Strip off :: namespacing
+  // Handle :: namespacing - special case for Pluma components
   parts = name.split('::');
   if (parts.length > 1) {
-    name = parts[parts.length - 1];
+    // For Pluma components, preserve the full name instead of stripping
+    if (kind === 'component' && parts[0].startsWith('Pluma')) {
+      // Convert PlumaPopover::Trigger to PlumaPopoverTrigger
+      name = parts.join('');
+    } else {
+      // Default behavior: use only the last part
+      name = parts[parts.length - 1];
+    }
   }
 
   if (htmlTagNames.includes(name) && kind === 'component') {
