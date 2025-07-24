@@ -895,7 +895,11 @@ async function runResolverTransform(
 function extractImports(ast: types.File, filter?: (path: string) => boolean): string {
   return ast.program.body
     .filter(b => b.type === 'ImportDeclaration' && (!filter || filter(b.source.value)))
-    .map(d => generate(d).code)
+    .map(d => {
+      // Generate import without comments to avoid duplication
+      // since deleteImports already handles comment cleanup
+      return generate(d, { comments: false }).code;
+    })
     .join('\n');
 }
 
